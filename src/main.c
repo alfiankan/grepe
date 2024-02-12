@@ -7,7 +7,13 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 
+int get_terminal_width() {
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    return w.ws_col;
+}
 
 
 long long convert_string_to_time_millis(char* str_time, char* format) {
@@ -15,7 +21,7 @@ long long convert_string_to_time_millis(char* str_time, char* format) {
   strptime(str_time, format, &time_start_struct);
   time_start_struct.tm_isdst = -1; 
   time_t timemillis_start = mktime(&time_start_struct);
-  return timemillis_start;
+  return timemillis_start * 1000LL;
 }
 
 int regexp_find_match(char *pattern, char *text_data, int max_char_matches, char *match_result) {
@@ -59,6 +65,42 @@ int regexp_find_match(char *pattern, char *text_data, int max_char_matches, char
   return -1;
 }
 
+
+char **split_string(const char *str, const char *delim, int *count) {
+    // Create a copy of the input string
+    char *copy = strdup(str);
+    if (copy == NULL) {
+        perror("Memory allocation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    char **tokens = NULL;
+    *count = 0;
+
+    char *token = strtok(copy, delim);
+
+    while (token != NULL) {
+        tokens = realloc(tokens, ((*count) + 1) * sizeof(char *));
+        if (tokens == NULL) {
+            perror("Memory allocation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        tokens[*count] = strdup(token);
+        if (tokens[*count] == NULL) {
+            perror("Memory allocation failed");
+            exit(EXIT_FAILURE);
+        }
+
+        token = strtok(NULL, delim);
+        (*count)++;
+    }
+
+    free(copy);
+
+    return tokens;
+}
+
 int time_ms_to_formated_string_date_time(long long time_ms, char *datetime_format, char *formated_result) {
   time_t unix_time = (time_t) (time_ms / 1000LL);
   struct tm *tm_info;
@@ -85,24 +127,22 @@ int main(int argc, char *argv[]) {
   const char *source_path = argv[8];
 
   const char* log = "203.0.113.10 - - [11/Feb/2024:12:34:56 +0000] \"GET /index.html HTTP/1.1\" 200 1024 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.190 Safari/537.36\"";
-  printf("%s \n", log);
 
   char* log_time_pattern = "[[0-9]{2}/[A-Za-z]+/[0-9]{4}:[0-9]{2}:[0-9]{2}:[0-9]{2}";
 
   // bind test
-  time_start = "2024-01-01 07:07:00";
-  time_end = "2024-01-01 08:08:25";
+  time_start = "2024-02-11 22:17:00";
+  time_end = "2024-02-11 22:18:00";
   window_step = "10";
   source_path = "mylog";
   time_pattern = "[[0-9]{2}/[A-Za-z]+/[0-9]{4}:[0-9]{2}:[0-9]{2}:[0-9]{2}";
   time_format = "%d/%b/%Y:%H:%M:%S";
-  group_by = "401";
+  group_by = "200";
+  char *bar_symbol = "▓";
+
   
   int window_step_range = atoi(window_step);
  
-  int *t_series_size;
-  int *t_series;
-
   long long step = (long long) window_step_range;
  
   // read file line perline
@@ -123,7 +163,6 @@ int main(int argc, char *argv[]) {
       return 1;
   }
 
-  printf("System memory page size: %d bytes\n", page_size);
 
   int total_pages = (int) ((sb.st_size + page_size - 1) / page_size);
 
@@ -131,23 +170,34 @@ int main(int argc, char *argv[]) {
 
 
   // linkedlist
+  struct LabelBucket {
+    char *key;
+    int value;
+  };
 
   struct TSBucket {
     struct TSBucket *next_bucket;
     long long ts_start;
     long long ts_end;
-    int total;
+    struct LabelBucket *label_bucket;
   };
 
-  struct TSBucket ts_bucket_head = { .ts_start = 0, .ts_end = 0, .total = 0, .next_bucket = NULL };
+  struct TSBucket ts_bucket_head = { .ts_start = 0, .ts_end = 0, .label_bucket = NULL, .next_bucket = NULL };
 
   struct TSBucket *current_ts_bucket_node = &ts_bucket_head;
-  printf("HEADDDD=%p\n", current_ts_bucket_node);
 
-  long long very_limit_time = 1707660960000;
+  int total_group_keys = 0;
+  char **group_key = split_string(group_by, "|", &total_group_keys);
+
+
+  long long ts_cmd_start_ms = convert_string_to_time_millis(time_start, "%Y-%m-%d %H:%M:%S");
+  long long ts_cmd_end_ms = convert_string_to_time_millis(time_end, "%Y-%m-%d %H:%M:%S");
+
+
 
   for (int page_num = 0; page_num < total_pages; page_num++) {
-  
+ 
+    
 
     char *mapped;
     char *contents;
@@ -202,7 +252,18 @@ int main(int argc, char *argv[]) {
         continue;
       }
 
-      long long log_time_ms = convert_string_to_time_millis(time_log_part, time_format) * 1000LL;
+      long long log_time_ms = convert_string_to_time_millis(time_log_part, time_format);
+
+      // check if in range cmd
+      if ((ts_cmd_start_ms <= log_time_ms && log_time_ms <= ts_cmd_end_ms) == 0) {
+        
+        log_scanned_total += 1;
+
+        free(log_line);
+
+        scan_pointer_position += line_size;
+        continue;
+      }
 
       if (current_ts_bucket_node->ts_start == 0) {
         // init time series window
@@ -221,9 +282,16 @@ int main(int argc, char *argv[]) {
         // count group
         //printf("COUNTING\n");
 
-        if (regexp_find_match(group_by, log_line, line_size, time_log_part) == 0) {
-          current_ts_bucket_node->total += 1;  
-        }
+        
+
+          for (int x = 0; x < total_group_keys;x++) {
+            if (regexp_find_match(group_key[x], log_line, line_size, time_log_part) == 0) {
+              int curr = stbds_hmget(current_ts_bucket_node->label_bucket, group_key[x]);
+              stbds_hmput(current_ts_bucket_node->label_bucket, group_key[x], curr + 2000);
+            }
+          }
+
+          //current_ts_bucket_node->total += 1;  
 
 
       } else {
@@ -236,7 +304,7 @@ int main(int argc, char *argv[]) {
           struct TSBucket *next_node = (struct TSBucket *)malloc(sizeof(struct TSBucket));
 
           
-          next_node->total = 0;
+          next_node->label_bucket = NULL;
           next_node->ts_start = current_ts_bucket_node->ts_end;
           next_node->ts_end = current_ts_bucket_node->ts_end + (step * 1000LL);
           next_node->next_bucket = NULL;
@@ -248,9 +316,16 @@ int main(int argc, char *argv[]) {
 
           if ((current_ts_bucket_node->ts_start <= log_time_ms && log_time_ms <= current_ts_bucket_node->ts_end) == 1) {
             // please break
-            if (regexp_find_match(group_by, log_line, line_size, time_log_part) == 0) {
-              current_ts_bucket_node->total += 1;  
-            }
+            
+
+              for (int x = 0; x < total_group_keys;x++) {
+                if (regexp_find_match(group_key[x], log_line, line_size, time_log_part) == 0) {
+                  int curr = stbds_hmget(current_ts_bucket_node->label_bucket, group_key[x]);
+                  stbds_hmput(current_ts_bucket_node->label_bucket, group_key[x], curr + 5000);
+                }
+              }
+
+              //current_ts_bucket_node->total += 1;  
             break;
           }
 
@@ -275,27 +350,180 @@ int main(int argc, char *argv[]) {
 
   close(fd);
 
-  printf("total log scanned %d \n", log_scanned_total);
 
 
+  char legend_alphabet[10] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'};
+  int legend_alphabet_used = 0;
+  struct {char *key;char value;} *legend_alphabet_map = NULL;
+
+
+  // map bucket label with alphabet
+
+  for (int group_key_n = 0; group_key_n < total_group_keys; group_key_n++) {
+    stbds_hmput(legend_alphabet_map, group_key[group_key_n], legend_alphabet[legend_alphabet_used]);
+    legend_alphabet_used += 1;
+  }
+  
   // print all nodes
   struct TSBucket *curr_tbucket =  &ts_bucket_head;
 
+  int term_width = get_terminal_width();
+
+  int max_bar_height = 0;
+  int min_bar_height = 0;
+  for (;;) {
+    for (int group_key_n = 0; group_key_n < total_group_keys; group_key_n++) {
+
+      int actual_total = stbds_hmget(curr_tbucket->label_bucket, group_key[group_key_n]);
+      if (actual_total > max_bar_height) {
+        max_bar_height = actual_total;
+      }
+      if (min_bar_height == 0) {
+        min_bar_height = actual_total;
+      }
+      if (actual_total < min_bar_height) {
+        min_bar_height = actual_total;
+      }
+    }
+    if (curr_tbucket->next_bucket == NULL) {
+      break;
+    }
+    curr_tbucket = curr_tbucket->next_bucket; 
+  }
+
+  // reset
+  curr_tbucket =  &ts_bucket_head;
+
+  char *title = "[grepe v0.1.0]";
+
+
+  char *default_color = "\033[0m";
+  char *gray_color = "\033[1;30m";
+  char *red_color = "\033[1;31m";
+  char *green_color = "\033[1;32m";
+  int is_gray = 0;
+
+  for (int x = 0; x < term_width; x++) {
+    printf("=");
+  }
+  printf("\n");
+
+
+  printf("  %s \n", title);
+
+  printf("  TIME RANGE  : %s ~ %s \n", time_start, time_end);
+
+  printf("  PROCESSED   : %d line \n", log_scanned_total);
+
+  printf("  MAX         : %d \n", max_bar_height);
+  printf("  MIN         : %d \n\n", min_bar_height);
+
+
+  printf("  Legend      : \n");
+  for (int group_key_n = 0; group_key_n < total_group_keys; group_key_n++) {
+    char legend = stbds_hmget(legend_alphabet_map, group_key[group_key_n]);
+    printf("  [%c] %s \n", legend, group_key[group_key_n]);
+  }
+
+
+  for (int x = 0; x < term_width; x++) {
+    printf("=");
+  }
+  printf("\n");
+
+
   for (;;) {
 
+    
 
-    char time_x_legend[20];
-    time_ms_to_formated_string_date_time(curr_tbucket->ts_start, "%Y-%m-%d %H:%M:%S", time_x_legend);
-
-    printf("[%s] total=%d ", time_x_legend, curr_tbucket->total );
-
-    // ■■■■■■■
-    // ■■■■■■■
-
-    for (int x = 0; x < curr_tbucket->total;x++) {
-      printf("■");
-    }
+    // we need terminal size so we dont overflow
+    // ===== buckets
     printf("\n");
+    for (int group_key_n = 0; group_key_n < total_group_keys; group_key_n++) {
+
+      char time_x_legend[20];
+      time_ms_to_formated_string_date_time(curr_tbucket->ts_start, "%Y-%m-%d %H:%M:%S", time_x_legend);
+
+      int curr_display_pointer = 0;
+      char *line_display = malloc(sizeof(char) * term_width);
+
+      int actual_total = stbds_hmget(curr_tbucket->label_bucket, group_key[group_key_n]);
+
+      int total_on_bar_max_size = snprintf(NULL, 0, " (%d)", actual_total) + 2;
+      char *total_on_bar = malloc(sizeof(char) * total_on_bar_max_size);
+      sprintf(total_on_bar, " (%d)", actual_total);
+
+      // strcuture
+      // 20 chars date
+      // 1 space
+      // 2 char sub group
+      // 1 space
+      // n total length
+      // 1 space
+      // 10 char total
+
+
+      char *legend_alphabet_alias = malloc(sizeof(char) * 3);
+      legend_alphabet_alias[0] = ' ';
+
+      legend_alphabet_alias[1] = stbds_hmget(legend_alphabet_map, group_key[group_key_n]);
+      legend_alphabet_alias[2] = ' ';
+      
+    
+
+      strcat(line_display, time_x_legend);
+      strcat(line_display, " | ");
+      strcat(line_display, legend_alphabet_alias);
+
+      // char left
+      int char_left = term_width - (20+1+2+1+total_on_bar_max_size);
+
+      int bar_normalized_delta = (max_bar_height / char_left);
+      // if < 0 so reduce by delta to fit the terminal
+
+      int display_bar_length = (actual_total / bar_normalized_delta) /2;
+      if (bar_normalized_delta <= 0) {
+        display_bar_length = actual_total;
+      }
+        
+        if (actual_total >= max_bar_height) {
+          strcat(line_display, red_color); 
+        } else if (actual_total <= min_bar_height) {
+          strcat(line_display, green_color); 
+        } else {
+          strcat(line_display, gray_color);
+        }
+
+        
+
+
+
+      for (int x=0;x<display_bar_length;x++) {
+        strcat(line_display, bar_symbol);
+      }
+      strcat(line_display, default_color);
+
+
+      strcat(line_display, total_on_bar);
+      
+
+
+      // ■■■■■■■
+      // ■■■■■■■
+
+
+      printf("%s", line_display);
+      
+      printf("\n");
+
+    }
+
+    if (((int) stbds_hmlenu(curr_tbucket->label_bucket)) > 1 ) {
+      for (int x = 0; x < term_width; x++) {
+        printf("_");
+      }
+      printf("\n");
+    }
 
     if (curr_tbucket->next_bucket == NULL) {
       break;
@@ -303,9 +531,12 @@ int main(int argc, char *argv[]) {
     //curr_tbucket = curr_tbucket->next_bucket; 
     curr_tbucket = curr_tbucket->next_bucket;
       
-    
+     
 
   }
+
+
+
 
   return 0;
 }
