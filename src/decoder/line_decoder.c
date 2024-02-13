@@ -1,4 +1,3 @@
-#include "../include/common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -8,9 +7,15 @@
 #include <sys/stat.h>
 #include <regex.h>
 #include <time.h>
+#include "../../include/common.h"
+#include "../tui/horizontal_bar.c"
+#include "../tui/head.c"
 #define STB_DS_IMPLEMENTATION
-#include "../include/stb_ds.h"
 
+#ifndef HEADER_STB_H
+#define HEADER_STB_H
+#include "../../libs/stb/stb_ds.h"
+#endif
 
 /*
  * parsing line text using regex
@@ -106,8 +111,10 @@ int process_time_series_text_line(
       if (regexp_find_match(time_pattern, log_line, line_size, time_log_part) == REG_NOMATCH) {
         // non match time format pattern
         log_scanned_total += 1;
-        free(log_line);
         in_page_scan_cursor_position += line_size;
+
+        printf("Failed to parse time at line: %s \n", log_line);
+        free(log_line);
         continue;
       }
       
@@ -128,7 +135,6 @@ int process_time_series_text_line(
       if (current_ts_bucket_node->ts_start == 0 && current_ts_bucket_node->next_bucket == NULL) {
 
         // normalize to hour 00:00:00
-        printf("fisrt logtime %s\n", time_log_part);
         struct tm *first_time_tm = time_ms_to_tm(log_time_ms);
 
         int leap = step_leap(step);
@@ -163,7 +169,6 @@ int process_time_series_text_line(
           first_time_tm->tm_min,
           first_time_tm->tm_sec
         );
-        printf("start at %s \n", normalized_start_datetime);
         current_ts_bucket_node->ts_start = convert_string_to_time_millis(normalized_start_datetime, "%Y-%m-%d %H:%M:%S");
         
         current_ts_bucket_node->ts_end = current_ts_bucket_node->ts_start + (step * 1000LL);
@@ -176,7 +181,7 @@ int process_time_series_text_line(
         for (int x = 0; x < group_pattern_total; x++) {
           if (regexp_find_match(group_by[x], log_line, line_size, time_log_part) == 0) {
             int curr = stbds_hmget(current_ts_bucket_node->label_bucket, group_by[x]);
-            stbds_hmput(current_ts_bucket_node->label_bucket, group_by[x], curr + 2000);
+            stbds_hmput(current_ts_bucket_node->label_bucket, group_by[x], curr + 1);
           } 
         }
 
@@ -198,7 +203,7 @@ int process_time_series_text_line(
             for (int x = 0; x < group_pattern_total;x++) {
               if (regexp_find_match(group_by[x], log_line, line_size, time_log_part) == 0) {
                 int curr = stbds_hmget(current_ts_bucket_node->label_bucket, group_by[x]);
-                stbds_hmput(current_ts_bucket_node->label_bucket, group_by[x], curr + 5000);
+                stbds_hmput(current_ts_bucket_node->label_bucket, group_by[x], curr + 13);
               }
             }
             break;
@@ -265,6 +270,60 @@ int process_time_series_text_line(
 
 
 
+int run_time_series_for_horizontal_bar(
+  char *time_pattern, 
+  char *time_format, 
+  char *ts_start_datetime, 
+  char *ts_end_datetime, 
+  int step, 
+  char *path, 
+  char *group_by[],
+  int group_pattern_total,
+  char *symbol
+) {
+  struct LabelBucket *label_bucket_map = NULL;
 
+
+  struct TSBucket ts_bucket = { 
+    .ts_start = 0, 
+    .ts_end = 0, 
+    .label_bucket = label_bucket_map, 
+    .next_bucket = NULL,
+  };
+
+  struct LegendCharMap *legend_map = NULL;
+
+  struct DecoderResult decoded_result = {
+    .max = 0,
+    .min = 0,
+    .total_scanned = 0,
+    .head = &ts_bucket,
+    .legend = legend_map,
+    .group_pattern_total = group_pattern_total,
+  };
+  decoded_result.group_by = group_by;
+   
+
+  if (process_time_series_text_line(
+    time_pattern,
+    time_format,
+    ts_start_datetime,
+    ts_end_datetime,
+    step,
+    path,
+    group_by,
+    group_pattern_total,
+    &decoded_result
+  ) != 0) {
+    perror("Failed to process data");
+    return 1;
+  }
+  // display
+  print_header(ts_start_datetime, ts_end_datetime, &decoded_result);
+
+  print_time_series_horizontal_bar(&decoded_result, symbol);
+
+  return 0;
+}
 
 

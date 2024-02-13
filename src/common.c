@@ -15,7 +15,6 @@
 
 
 
-
 int get_os_page_size() {
   int page_size = (int) sysconf(_SC_PAGESIZE);
   if (page_size == -1) {

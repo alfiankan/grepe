@@ -5,16 +5,20 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include "../include/common.h"
+#include "../../include/common.h"
 #include <string.h>
 #define STB_DS_IMPLEMENTATION
-#include "../include/stb_ds.h"
+#ifndef HEADER_STB_H
+#define HEADER_STB_H
+#include "../../libs/stb/stb_ds.h"
+#endif
 
-int print_time_series_horizontal_bar(struct DecoderResult *decoded) {
+
+int print_time_series_horizontal_bar(struct DecoderResult *decoded, char *bar_symbol) {
 
   int term_width = get_terminal_width();
 
-  char *bar_symbol = "▓";
+  //char *bar_symbol = "▓";
 
   struct TSBucket *curr_tbucket = decoded->head;
 
@@ -61,7 +65,7 @@ int print_time_series_horizontal_bar(struct DecoderResult *decoded) {
       int bar_normalized_delta = (decoded->max / char_left);
       // if < 0 so reduce by delta to fit the terminal
 
-      int display_bar_length = (actual_total / bar_normalized_delta);
+      int display_bar_length = (actual_total / bar_normalized_delta) / 2;
       if (bar_normalized_delta <= 0) {
         display_bar_length = actual_total;
       }
