@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <getopt.h>
-#include "decoder/line_decoder.c"
+//#include "decoder/line_decoder.c"
 
 int main(int argc, char *argv[]) {
     int opt;
@@ -85,6 +85,8 @@ int main(int argc, char *argv[]) {
   char *group_by_pattern[] = {"200", "400", "Mozilla"};
   int group_total = 3;
 
+  return 0;
+/*
   run_time_series_for_horizontal_bar(
     time_pattern,
     time_format,
@@ -96,6 +98,6 @@ int main(int argc, char *argv[]) {
     group_total,
     "#"
   );
-
+*/
   return 0;
 }

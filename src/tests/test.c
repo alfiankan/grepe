@@ -14,6 +14,7 @@ int main() {
   char *group_by_pattern[] = {"200", "400"};
   int group_total = 2;
   char *symbol = "▓";
+  
 
   run_time_series_for_horizontal_bar(
     time_pattern,

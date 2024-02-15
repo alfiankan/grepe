@@ -5,6 +5,7 @@
 #include <regex.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <stdlib.h>
 
 #define NEW_LINE_SEPARATOR '\n'
 #define TERM_COLOR_DEFAULT "\033[0m"
@@ -39,19 +40,19 @@ int regexp_find_match(char *pattern, char *text_data, int max_char_matches, char
   regex_t rg;
   regmatch_t rg_result[max_char_matches];
   
-  
   int reg_comp_result = regcomp(&rg, pattern, REG_EXTENDED);
   if (reg_comp_result != 0) {
     char error_message[max_char_matches];
     regerror(reg_comp_result, &rg, error_message, sizeof(error_message));
     fprintf(stderr, "Failed to compile regex pattern: %s\n", error_message);
+    regfree(&rg);
     return reg_comp_result;
   }
 
   int result = regexec(&rg, text_data, max_char_matches, rg_result, 0);
 
   if (result == 0) {
-    
+    regfree(&rg); 
     int len = rg_result[0].rm_eo - rg_result[0].rm_so;
     if (len < max_char_matches - 1) {
       strncpy(match_result, text_data + rg_result[0].rm_so, len);
@@ -62,11 +63,13 @@ int regexp_find_match(char *pattern, char *text_data, int max_char_matches, char
     }
 
   } else if(result == REG_NOMATCH) {
+    regfree(&rg);
     return 1;
   } else {
     char error_message[100];
     regerror(result, &rg, error_message, sizeof(error_message));
     fprintf(stderr, "Failed to execute regex: %s\n", error_message);
+    regfree(&rg);
     return 1;
   }
   return 1;
