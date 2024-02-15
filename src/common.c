@@ -35,8 +35,10 @@ long long convert_string_to_time_millis(char* str_time, char* format) {
 
 
 int regexp_find_match(char *pattern, char *text_data, int max_char_matches, char *match_result) {
+  max_char_matches += 50;
   regex_t rg;
   regmatch_t rg_result[max_char_matches];
+  
   
   int reg_comp_result = regcomp(&rg, pattern, REG_EXTENDED);
   if (reg_comp_result != 0) {
@@ -55,16 +57,17 @@ int regexp_find_match(char *pattern, char *text_data, int max_char_matches, char
       strncpy(match_result, text_data + rg_result[0].rm_so, len);
       return 0;
     } else {
-      fprintf(stderr, "Matched portion is too long\n");
+      fprintf(stderr, "Matched portion is too long %d from %d char\n", len, max_char_matches - 1);
+      return 1;
     }
 
   } else if(result == REG_NOMATCH) {
-    return result;
+    return 1;
   } else {
     char error_message[100];
     regerror(result, &rg, error_message, sizeof(error_message));
     fprintf(stderr, "Failed to execute regex: %s\n", error_message);
-    return result;
+    return 1;
   }
   return 1;
 }

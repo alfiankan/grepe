@@ -16,6 +16,12 @@ add_executable(
   ${CMAKE_SOURCE_DIR}/src/cmd.c
 )
 
+add_executable( 
+  grepe-demo-gen-log 
+  ${CMAKE_SOURCE_DIR}/src/common.c
+  ${CMAKE_SOURCE_DIR}/src/gen_log_cmd.c
+)
+
 
 
 #add_subdirectory( ./libs/cJSON )

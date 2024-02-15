@@ -10,6 +10,8 @@
 #include "../../include/common.h"
 #include "../tui/horizontal_bar.c"
 #include "../tui/head.c"
+#include <errno.h>
+
 #define STB_DS_IMPLEMENTATION
 
 #ifndef HEADER_STB_H
@@ -48,6 +50,8 @@ int process_time_series_text_line(
 
   int os_page_size = get_os_page_size();
 
+  os_page_size *= 100;
+
   int log_scanned_total = 0;
 
   struct TSBucket *current_ts_bucket_node = decoded->head;
@@ -56,10 +60,16 @@ int process_time_series_text_line(
   long long ts_cmd_end_ms = convert_string_to_time_millis(ts_end_datetime, "%Y-%m-%d %H:%M:%S");
 
   int total_pages = (int) ((source_file_stat.st_size + os_page_size - 1) / os_page_size);
-
+  printf("TOTAL PAGES %d \n", total_pages);
   // iterate over page
+
+  char *carry_page_data = malloc(10);
+  int total_carry_bytes = 0;
+  int total_bytes_scanned = 0;
+
   for (int page_num = 0; page_num < total_pages; page_num++) {
     // map to ram
+    //printf("Start Scanning page: %d from offset %d\n", page_num, page_num * os_page_size);
     char *mapped_chunk = mmap(
       NULL, 
       os_page_size, 
@@ -68,22 +78,50 @@ int process_time_series_text_line(
       fd, 
       page_num * os_page_size
     );
+    if (mapped_chunk == MAP_FAILED) {
+      continue;
+    }
 
     int in_page_scan_cursor_position = 0;
+    int last_in_line_offset_end = 0;
     for (;;) {
       int line_size = 0;
       int in_line_scan_cursor_position = in_page_scan_cursor_position;
       int is_end_of_page = 0;
 
+      // LINE SCANNING
       for (;;) {
+        total_bytes_scanned += 1;
         if (in_line_scan_cursor_position + 1 > os_page_size) {
           // break here to continue to next page
+          // but if log line is in 2 page we set read offset with length scanned
+          
+          //read_offset += last_in_line_offset_end;
+          //printf("reset page_size %d - %d\n", os_page_size, os_page_size - last_in_line_offset_end);
+
+          unsigned long carry_total_bytes = (unsigned long) (os_page_size - last_in_line_offset_end);
+          if (carry_total_bytes > 0) {
+            // we need to carry overflow offset data
+            // realloc size
+            carry_page_data = realloc(carry_page_data, carry_total_bytes);
+
+            char *buffer_from_offset = mapped_chunk + (last_in_line_offset_end );
+            memcpy(carry_page_data, buffer_from_offset, carry_total_bytes);
+            total_carry_bytes = carry_total_bytes;
+            
+            //printf("\n======\nCARRIED (%s) SIZE %ld last scanned offset %d\n======\n", carry_page_data, carry_total_bytes, last_in_line_offset_end);
+          }
+
+          //exit(1);
+
           is_end_of_page = 1;
           break;
         }
 
         // check if EOL break to one line to next further process
+        
         if (mapped_chunk[in_line_scan_cursor_position] == '\n') {
+          last_in_line_offset_end = in_line_scan_cursor_position;
           line_size += 1;
           // scan nextline
           break;
@@ -98,25 +136,58 @@ int process_time_series_text_line(
       }
 
       
-      char *log_line = malloc(line_size);
+      char *log_line = malloc(line_size + total_carry_bytes);
+      //printf("LINE SIZE %ld \n", sizeof(char));
       // copy line
       // TODO: refactor use memcp
-      for (int x = 0; x < line_size; x++) {
-        log_line[x] = mapped_chunk[in_page_scan_cursor_position + x];
+
+      // check if carry page data exist read first and append to logline
+      int write_alignment_with_carry_data = 0;
+      if (total_carry_bytes > 0) {
+        for (int x = 0; x < total_carry_bytes; x++) {
+          log_line[x] = carry_page_data[x]; 
+        } 
+
+        write_alignment_with_carry_data = total_carry_bytes;
+
+        // reset carry data
+        total_carry_bytes = 0;
       }
+
+      for (int x = 0; x < line_size; x++) {
+        //printf("SCANNED %c \n", mapped_chunk[in_line_scan_cursor_position + x]);
+        log_line[x + write_alignment_with_carry_data] = mapped_chunk[in_page_scan_cursor_position + x];
+      }
+
       
+      
+      //printf("===== (%d) \n", log_scanned_total);
+     
+
+      if (log_scanned_total == 1000) {
+        //exit(1);
+      }
+
+      //printf("LOG alignment (%d) [%d] : %s total size %d at page: %d \n", write_alignment_with_carry_data, log_scanned_total, log_line, line_size, page_num); 
 
       // break time part by using regex
-      char *time_log_part = malloc(20);
-      if (regexp_find_match(time_pattern, log_line, line_size, time_log_part) == REG_NOMATCH) {
+      char *time_log_part = malloc(50);
+      int matching_time_result = regexp_find_match(time_pattern, log_line, line_size + write_alignment_with_carry_data + 50, time_log_part);
+      if ( matching_time_result != 0) {
         // non match time format pattern
         log_scanned_total += 1;
         in_page_scan_cursor_position += line_size;
 
-        printf("Failed to parse time at line: %s \n", log_line);
+        printf("Failed to parse time at line (%d): %s \n", log_scanned_total, log_line);
+        //exit(1); 
+
+        //printf("LOG alignment (%d) [%d] : (%s) total size %d at page: %d \n", write_alignment_with_carry_data, log_scanned_total, log_line, line_size, page_num); 
         free(log_line);
+
         continue;
       }
+      //exit(1);
+
       
       long long log_time_ms = convert_string_to_time_millis(time_log_part, time_format);
 
@@ -219,6 +290,14 @@ int process_time_series_text_line(
     if (munmap(mapped_chunk, os_page_size) == -1) {
       perror("munmap");
       return EXIT_FAILURE;
+    }
+
+    // print info scanned page
+    printf("Scanned %d/%d bytes [%.2f%%] \n", total_bytes_scanned, (int) source_file_stat.st_size, ( (double) total_bytes_scanned / (double) source_file_stat.st_size)*100);
+    fflush(stdout);
+
+    if (total_bytes_scanned > 1024*1024*100) {
+      break;
     }
   }
 
