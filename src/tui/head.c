@@ -26,7 +26,7 @@ int print_header(
   printf("\n");
 
 
-  printf("  %s \n", "grepe v0.1.0");
+  printf("  %s \n", "grepe v0.1.0-beta");
 
   printf("  TIME RANGE  : %s ~ %s \n", time_start, time_end);
 

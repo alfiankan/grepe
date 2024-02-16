@@ -22,10 +22,9 @@ add_executable(
   ${CMAKE_SOURCE_DIR}/src/gen_log_cmd.c
 )
 
+install(TARGETS grepe DESTINATION bin)
+install(TARGETS grepe-demo-gen-log DESTINATION bin)
 
-
-#add_subdirectory( ./libs/cJSON )
-#target_link_libraries( grepe cjson )
 
 
 

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "../decoder/line_decoder.c"
+#include "../tools/nginx_log_generator.c"
 
 int main() {
 
@@ -14,7 +15,12 @@ int main() {
   char *group_by_pattern[] = {"200", "400"};
   int group_total = 2;
   char *symbol = "▓";
-  
+ 
+
+  // remove test file
+  remove(source_path);
+
+  generate_nginx_default_log(source_path); 
 
   run_time_series_for_horizontal_bar(
     time_pattern,
