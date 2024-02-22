@@ -11,7 +11,11 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: 'true'
-      - uses: goto-bus-stop/setup-zig@v2
+      - name: setup zig toolchain
+        run: |
+          apt install snapd -y
+          snap install zig --beta --classic
+          
       - run: |
           mkdir -p bin
           rm -rf zig-cache && zig build -Dtarget=aarch64-linux-musl --summary all && cp zig-out/bin/grepe bin/grepe-linux-arm64
