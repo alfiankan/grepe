@@ -6,9 +6,9 @@ int main() {
 
 
   // test
-  char *time_start = "2023-11-04 12:30:00";
-  char *time_end = "2023-11-04 13:00:00";
-  int window_step = 60 * 5;
+  char *time_start = "2020-11-04 12:30:00";
+  char *time_end = "2029-11-04 13:00:00";
+  int window_step = 30;
   char *source_path = "mylog";
   char *time_pattern = "[[0-9]{2}/[A-Za-z]+/[0-9]{4}:[0-9]{2}:[0-9]{2}:[0-9]{2}";
   char *time_format = "%d/%b/%Y:%H:%M:%S";

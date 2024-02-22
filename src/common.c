@@ -17,13 +17,16 @@
 
 
 int get_os_page_size() {
-  int page_size = (int) sysconf(_SC_PAGESIZE);
-  if (page_size == -1) {
-      perror("sysconf");
-      return 1;
+  struct winsize ws;
+  if ( 
+    ioctl( STDIN_FILENO , TIOCGWINSZ, &ws ) != 0 &&
+    ioctl( STDOUT_FILENO, TIOCGWINSZ, &ws ) != 0 &&
+    ioctl( STDERR_FILENO, TIOCGWINSZ, &ws ) != 0 
+  ) {
+    return 500;
   }
+  return ws.ws_col;
 
-  return page_size;
 }
 
 long long convert_string_to_time_millis(char* str_time, char* format) {
@@ -89,7 +92,7 @@ int time_ms_to_formated_string_date_time(long long time_ms, char *datetime_forma
   tm_info = localtime(&unix_time);
   tm_info->tm_isdst = -1;
 
-  strftime(formated_result, 20, datetime_format, tm_info);
+  strftime(formated_result, 50, datetime_format, tm_info);
 
   return 0;
 }
