@@ -1,0 +1,23 @@
+name: Build Release Cross Platform
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'true'
+      - uses: goto-bus-stop/setup-zig@v2
+      - run: zig build test
+      - name: Upload to release linux amd64
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/release/grepe*
+          tag: ${{ github.ref }}
+          overwrite: true
+          body: ""
